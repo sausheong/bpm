@@ -2,7 +2,7 @@
 
 A machine learning pipeline to estimate **Systolic (SBP)** and **Diastolic (DBP)** blood pressure from Photoplethysmogram (PPG) signals extracted from smartphone videos.
 
-## 🎯 Quick Start
+## Quick Start
 
 ### Prerequisites
 - **Python 3.12+**
@@ -30,18 +30,18 @@ uv run python predict_bp.py your_video.mp4
 
 ---
 
-## ⚖️ Model Comparison
+## Model Comparison
 
 | Feature | Random Forest | 1D CNN |
 |---------|--------------|--------|
-| **SBP MAE** | 13.91 mmHg | **7.50 mmHg** 🏆 |
-| **DBP MAE** | 6.67 mmHg | **4.18 mmHg** 🏆 |
+| **SBP MAE** | 13.91 mmHg | **7.50 mmHg** (Best) |
+| **DBP MAE** | 6.67 mmHg | **4.18 mmHg** (Best) |
 | **R² Score** | 0.24 | **0.70** |
 | **Hardware** | CPU | GPU (CUDA) |
 
 ---
 
-## 🛠️ Calibration
+## Calibration
 
 Personalize predictions with a reference measurement:
 
@@ -56,9 +56,9 @@ uv run python predict_bp.py --clear-calibration
 
 ---
 
-## 📖 API Reference
+## API Reference
 
-### CNN Model (`src/model_cnn.py`)
+### CNN Model (src/model_cnn.py)
 
 ```python
 from src.model_cnn import create_cnn_model, train_cnn_model, predict_with_cnn
@@ -98,7 +98,7 @@ metrics = train_cnn_pipeline(
 
 ---
 
-## 🔬 Technical Details
+## Technical Details
 
 ### CNN Architecture
 ```
@@ -124,7 +124,7 @@ Input (1, 625)
 
 ---
 
-## 🏗️ Project Structure
+## Project Structure
 
 ```
 bpm/
@@ -145,10 +145,10 @@ bpm/
 
 ---
 
-## 📚 References
+## References
 
 - [UCI Cuff-less BP Dataset](https://archive.ics.uci.edu/dataset/340/cuff+less+blood+pressure+estimation)
 - [NeuroKit2 PPG Analysis](https://neuropsychology.github.io/NeuroKit/functions/ppg.html)
 
-## 📄 License
+## License
 Research use only. Cite UCI dataset if used in publications.
