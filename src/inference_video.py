@@ -17,6 +17,7 @@ warnings.filterwarnings("ignore", category=InconsistentVersionWarning)
 import joblib
 import numpy as np
 import pandas as pd
+import torch
 from scipy import signal as sp_signal
 
 from features import PPGFeatureExtractor
@@ -143,8 +144,21 @@ def _predict_cnn(signal_data: np.ndarray, model_path: str) -> dict:
         print("⚠ No scaler found in metadata, using per-window normalization")
         windows_norm = (windows - windows.mean(axis=1, keepdims=True)) / windows.std(axis=1, keepdims=True)
     
+    # Detect device
+    if torch.cuda.is_available():
+        device = 'cuda'
+        device_name = torch.cuda.get_device_name(0)
+    elif torch.backends.mps.is_available():
+        device = 'mps'
+        device_name = "Apple Silicon GPU"
+    else:
+        device = 'cpu'
+        device_name = "CPU"
+    
+    print(f"  ✓ Device: {device_name}")
+
     # Predict
-    preds = predict_with_cnn(model, windows_norm)
+    preds = predict_with_cnn(model, windows_norm, device=device)
     
     # Average predictions
     avg_pred = np.mean(preds, axis=0)
