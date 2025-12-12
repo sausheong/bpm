@@ -182,7 +182,7 @@ def train_cnn_model(X_train, y_train, X_val, y_val,
     )
     
     # Initialize Mixed Precision Scaler
-    scaler = torch.cuda.amp.GradScaler() if device == 'cuda' else None
+    scaler = torch.amp.GradScaler('cuda') if device == 'cuda' else None
     if scaler:
         print(f"  ✓ Mixed Precision (AMP) enabled")
     
@@ -207,7 +207,7 @@ def train_cnn_model(X_train, y_train, X_val, y_val,
             
             # Mixed Precision Training
             if scaler:
-                with torch.cuda.amp.autocast():
+                with torch.amp.autocast('cuda'):
                     outputs = model(X_batch)
                     loss = criterion(outputs, y_batch)
                 
@@ -349,7 +349,7 @@ def predict_with_cnn(model, ppg_signals, device=None, batch_size=32):
             
             # Predict
             if device == 'cuda':
-                with torch.cuda.amp.autocast():
+                with torch.amp.autocast('cuda'):
                     batch_preds = model(X_batch).float().cpu().numpy()
             else:
                 batch_preds = model(X_batch).cpu().numpy()
