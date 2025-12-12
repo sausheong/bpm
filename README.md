@@ -69,17 +69,82 @@ uv run python predict_bp.py your_video.mp4 --model cnn
 
 ---
 
-## 🛠️ Calibration
+## 🛠️ Calibration Guide
 
-For personalized accuracy, you can calibrate the model with a reference measurement.
+The calibration feature allows you to personalize BP predictions using reference measurements from a clinically validated blood pressure device.
+
+### Why Calibrate?
+- **Improved Accuracy**: Accounts for individual physiological differences
+- **Personalized Offsets**: Learns your specific BP patterns
+- **Better Estimates**: Reduces systematic errors in predictions
+
+### Step 1: Measure with Reference Device
+Use a validated BP monitor (e.g., Omron, Withings) to measure your blood pressure.
+
+### Step 2: Record Video Immediately
+Within 1-2 minutes of the reference measurement:
+- Place finger on phone camera
+- Record for 20-30 seconds
+- Keep finger steady and relaxed
+
+### Step 3: Run Calibration
 
 ```bash
-# 1. Measure BP with a cuff (e.g., 120/80)
-# 2. Record video immediately
-# 3. Run calibration
-uv run python predict_bp.py calibration_video.mp4 --calibrate --sbp 120 --dbp 80
+uv run python predict_bp.py your_video.mp4 --calibrate --sbp 120 --dbp 80
 ```
-See [CALIBRATION.md](CALIBRATION.md) for details.
+
+### Managing Calibrations
+The system uses **weighted averaging** of up to 5 measurements.
+
+**View Calibrations:**
+```bash
+uv run python predict_bp.py --show-calibration
+```
+
+**Clear Calibrations:**
+```bash
+uv run python predict_bp.py --clear-calibration
+```
+
+---
+
+## 🔬 Technical Details
+
+### 1D CNN Architecture
+The 1D Convolutional Neural Network (CNN) provides an end-to-end learning approach:
+
+```
+Input: Raw PPG Signal (1, 625)
+    ↓
+Conv Block 1: Conv1D(32) + BatchNorm + ReLU + MaxPool
+    ↓
+Conv Block 2: Conv1D(64) + BatchNorm + ReLU + MaxPool
+    ↓
+Conv Block 3: Conv1D(128) + BatchNorm + ReLU + MaxPool
+    ↓
+Conv Block 4: Conv1D(128) + BatchNorm + ReLU
+    ↓
+Global Average Pooling
+    ↓
+Dense(128) + ReLU + Dropout(0.3)
+    ↓
+Dense(64) + ReLU + Dropout(0.3)
+    ↓
+Output: [SBP, DBP]
+```
+**Total Parameters:** ~110,146 (trainable)
+
+### Signal Processing Pipeline
+1. **Windowing**: Non-overlapping **5-second windows** (625 samples).
+2. **Resampling**: All signals normalized to **125 Hz**.
+3. **Filtering**: Butterworth Bandpass (0.5 - 8 Hz).
+4. **Data Normalization**: StandardScaler (mean=0, std=1).
+
+### Optimization (CNN)
+- **Loss Function**: MAE (L1 Loss) for robustness.
+- **Optimizer**: Adam (lr=0.001) with ReduceLROnPlateau.
+- **Regularization**: Dropout (0.3) and Batch Normalization.
+- **Performance**: FP16 Automatic Mixed Precision (AMP) enabled for RTX optimization.
 
 ---
 
@@ -96,23 +161,13 @@ bpm/
 │   └── inference_video.py  # Video processing & prediction
 ├── model/
 │   ├── bp_model.pkl        # Saved RF Model
-│   └── bp_model_cnn.pt     # Saved CNN Weights
+│   ├── bp_model_cnn.pt     # Saved CNN Weights
+│   └── calibration.json    # User calibration data
 ├── uci_dataset/            # Place Part_1.mat, etc. here
 ├── train.py                # Main training entry point
 ├── predict_bp.py           # Inference entry point
 └── requirements.txt
 ```
-
-## 📝 Technical Details
-
-- **Signal Processing**: All signals resampled to **125 Hz**.
-- **Windowing**: Non-overlapping **5-second windows**.
-- **Filtering**: Butterworth Bandpass (0.5 - 8 Hz).
-- **CNN Architecture**: 
-  - 4x Conv1D blocks with BatchNorm & ReLU.
-  - Global Average Pooling.
-  - 2x Dense layers with Dropout (0.3).
-  - Trained with L1 Loss (MAE) and Adam Optimizer.
 
 ## 📄 License
 Research use only. Cite UCI Cuff-less Blood Pressure Estimation Dataset.
