@@ -1,0 +1,26 @@
+# Blood Pressure Estimation - Python Dependencies
+
+# Core Scientific Computing
+numpy>=1.24
+pandas>=2.0
+scipy>=1.11
+
+# Machine Learning
+scikit-learn>=1.3
+torch>=2.0
+
+# Signal Processing & Feature Extraction
+neurokit2>=0.2
+
+# Computer Vision (for video processing)
+opencv-python>=4.8
+
+# Data Storage & I/O
+h5py>=3.0
+joblib>=1.3
+
+# Visualization
+matplotlib>=3.7
+
+# Progress Bars
+tqdm>=4.65
