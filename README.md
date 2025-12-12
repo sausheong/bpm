@@ -25,7 +25,7 @@ uv run python train.py --model cnn --parts 1 2 3 4 --epochs 100
 
 ### Predict
 ```bash
-uv run python predict_bp.py your_video.mp4
+uv run python predict.py your_video.mp4
 ```
 
 ---
@@ -47,11 +47,11 @@ Personalize predictions with a reference measurement:
 
 ```bash
 # Calibrate with reference BP reading
-uv run python predict_bp.py video.mp4 --calibrate --sbp 120 --dbp 80
+uv run python predict.py video.mp4 --calibrate --sbp 120 --dbp 80
 
 # View/clear calibration
-uv run python predict_bp.py --show-calibration
-uv run python predict_bp.py --clear-calibration
+uv run python predict.py --show-calibration
+uv run python predict.py --clear-calibration
 ```
 
 ---
@@ -139,7 +139,7 @@ bpm/
 ├── model/                    # Saved models
 ├── uci_dataset/              # Training data (.mat files)
 ├── train.py                  # CLI training entry
-├── predict_bp.py             # CLI inference entry
+├── predict.py             # CLI inference entry
 └── requirements.txt
 ```
 
@@ -150,5 +150,4 @@ bpm/
 - [UCI Cuff-less BP Dataset](https://archive.ics.uci.edu/dataset/340/cuff+less+blood+pressure+estimation)
 - [NeuroKit2 PPG Analysis](https://neuropsychology.github.io/NeuroKit/functions/ppg.html)
 
-## License
-Research use only. Cite UCI dataset if used in publications.
+

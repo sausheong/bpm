@@ -11,10 +11,10 @@ Usage:
     python predict.py video.mp4 --calibrate --sbp 120 --dbp 80 --hr 72
     
     # View calibration status
-    python predict_bp.py --show-calibration
+    python predict.py --show-calibration
     
     # Clear calibration
-    python predict_bp.py --clear-calibration
+    python predict.py --clear-calibration
 """
 
 import sys
@@ -41,7 +41,7 @@ Examples:
   python predict.py video.mp4 --calibrate --sbp 120 --dbp 80
   
   # Include pulse rate for calibration
-  python predict_bp.py video.mp4 --calibrate --sbp 120 --dbp 80 --hr 72
+  python predict.py video.mp4 --calibrate --sbp 120 --dbp 80 --hr 72
         """
     )
     
@@ -104,7 +104,7 @@ Examples:
         if args.calibrate:
             if args.sbp is None or args.dbp is None:
                 print("\n⚠ Calibration requires --sbp and --dbp values")
-                print("Example: python predict_bp.py video.mp4 --calibrate --sbp 120 --dbp 80")
+                print("Example: python predict.py video.mp4 --calibrate --sbp 120 --dbp 80")
                 sys.exit(1)
             
             # Use raw predictions for calibration (before any calibration was applied)
@@ -166,7 +166,7 @@ Examples:
             if not result.get('calibrated'):
                 print("\n💡 Tip: Calibrate for personalized results")
                 print("  Measure with a reference BP device, then run:")
-                print(f"  python predict_bp.py {video_path} --calibrate --sbp XXX --dbp YY")
+                print(f"  python predict.py {video_path} --calibrate --sbp XXX --dbp YY")
             
             print("\nNote: This is an estimation tool, not medical advice.")
             print("=" * 60)
