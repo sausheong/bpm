@@ -317,7 +317,9 @@ def load_cnn_model(model_path: str) -> tuple[CNNModel, dict]:
         Tuple of (model, metadata). Model is in eval mode.
     """
     model = create_cnn_model()
-    model.load_state_dict(torch.load(f"{model_path}.pt", weights_only=True))
+    # map_location='cpu' ensures we can load CUDA-saved models on CPU/MPS
+    # The model will be moved to the correct device later in predict_with_cnn
+    model.load_state_dict(torch.load(f"{model_path}.pt", map_location='cpu', weights_only=True))
     model.eval()
     
     metadata_path = f"{model_path}_metadata.pkl"
