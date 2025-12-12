@@ -58,14 +58,18 @@ uv run python predict_bp.py your_video.mp4 --model cnn
 
 ## ⚖️ Model Comparison
 
+Results from training on the full UCI dataset (Parts 1-4).
+
 | Feature | Random Forest (RF) | 1D CNN |
 |---------|-------------------|--------|
-| **Input** | Hand-crafted features (HRV, peaks) | Raw PPG waveform (625 samples) |
-| **Training Time** | Fast (< 5 mins) | Slow (~1 hour on GPU) |
-| **Hardware** | CPU | NVIDIA GPU (Recommended) |
-| **Data Efficiency** | High (Works well with scanty data) | Low (Needs large datasets) |
-| **Pros** | Interpretable, stable | Learn complex non-linear patterns |
-| **Cons** | Feature engineering bottle-neck | Compute intensive |
+| **Input** | Hand-crafted features | Raw PPG waveform |
+| **SBP MAE** | 13.91 mmHg | **7.50 mmHg** 🏆 |
+| **DBP MAE** | 6.67 mmHg | **4.18 mmHg** 🏆 |
+| **R² Score** | 0.24 (SBP) | **0.70 (SBP)** |
+| **Inference** | Fast (CPU) | Real-time (GPU) |
+| **Best For** | Baseline / Low Compute | Precision / Production |
+
+> **Note:** The 1D CNN significantly outperforms the Random Forest model on the full dataset, demonstrating the power of end-to-end deep learning for this task.
 
 ---
 
