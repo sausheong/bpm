@@ -2,73 +2,84 @@
 
 A machine learning pipeline to estimate **Systolic (SBP)** and **Diastolic (DBP)** blood pressure from Photoplethysmogram (PPG) signals extracted from smartphone videos.
 
+This project implements two approaches:
+1.  **Feature Engineering + Random Forest:** Robust on small data, interpretable.
+2.  **1D CNN (Deep Learning):** End-to-end learning from raw signals, optimized for RTX GPUs (FP16/AMP).
+
 ## 🎯 Quick Start
 
-### 1. Install Dependencies
+### 1. Prerequisites
 
-Using `uv` (recommended):
+- **Python 3.12+**
+- **NVIDIA GPU** (Recommended for CNN)
+- **uv** (Recommended for fast dependency management)
+
+### 2. Install Dependencies
+
+Using `uv`:
 ```bash
 uv pip install -r requirements.txt
 ```
 
-Or using pip:
+> **Note for RTX 5090 Users:** This project uses PyTorch 2.9.1+ and NumPy 1.26.4 to ensure compatibility with Blackwell architecture and CUDA 12.8+.
+
+### 3. Train Models
+
+#### Option A: Random Forest (Fast, CPU-friendly)
+Best for quick prototyping or small datasets.
 ```bash
-pip install -r requirements.txt
+uv run python train.py --model rf --parts 1 2 3 4
 ```
 
-### 2. Train the Model
-
-Debug mode (fast, uses ~100 windows):
+#### Option B: 1D CNN (High Performance, GPU-accelerated)
+Best for large datasets and raw signal learning.
 ```bash
-uv run python train.py --max-windows 1000
+uv run python train.py --model cnn --parts 1 2 3 4 --epochs 100 --batch-size 32
 ```
+*Supports Automatic Mixed Precision (AMP) for reduced memory usage.*
 
-Full training (all data from Part 1):
+### 4. Inference (Predict from Video)
+
+Predict BP using your smartphone camera:
 ```bash
-uv run python train.py --full
-```
-
-### 3. Predict Blood Pressure from Video
-
-```bash
+# Uses Random Forest by default
 uv run python predict_bp.py your_video.mp4
+
+# Use CNN model
+uv run python predict_bp.py your_video.mp4 --model cnn
 ```
 
 **Video Requirements:**
-- Place finger on phone camera for 20-30 seconds
-- Keep finger still and relaxed
-- Ensure good lighting
-- MP4 format
-
-### 4. Calibrate for Personalized Results (Optional but Recommended)
-
-For improved accuracy, calibrate with a reference BP measurement:
-
-```bash
-# Measure BP with a validated device (e.g., automated cuff)
-# Then record a video immediately and run:
-uv run python predict_bp.py calibration_video.mp4 --calibrate --sbp 120 --dbp 80
-
-# Future predictions will automatically use calibration
-uv run python predict_bp.py new_video.mp4
-# Output shows: "✓ Calibrated prediction"
-```
-
-**See [CALIBRATION.md](CALIBRATION.md) for detailed calibration guide**
+- Place finger covering the **entire** main camera and flash.
+- Record for **20-30 seconds**.
+- Keep finger steady and relaxed.
 
 ---
 
-## 📊 Performance
+## ⚖️ Model Comparison
 
-Trained on UCI Cuff-less Blood Pressure Estimation Dataset:
+| Feature | Random Forest (RF) | 1D CNN |
+|---------|-------------------|--------|
+| **Input** | Hand-crafted features (HRV, peaks) | Raw PPG waveform (625 samples) |
+| **Training Time** | Fast (< 5 mins) | Slow (~1 hour on GPU) |
+| **Hardware** | CPU | NVIDIA GPU (Recommended) |
+| **Data Efficiency** | High (Works well with scanty data) | Low (Needs large datasets) |
+| **Pros** | Interpretable, stable | Learn complex non-linear patterns |
+| **Cons** | Feature engineering bottle-neck | Compute intensive |
 
-| Metric | Training | Test |
-|--------|----------|------|
-| **SBP MAE** | 2.05 mmHg | 4.74 mmHg ✓ |
-| **DBP MAE** | 1.26 mmHg | 2.71 mmHg ✓ |
-| **Overall MAE** | 1.65 mmHg | 3.73 mmHg |
+---
 
-Target: SBP < 15 mmHg, DBP < 12 mmHg ✅
+## 🛠️ Calibration
+
+For personalized accuracy, you can calibrate the model with a reference measurement.
+
+```bash
+# 1. Measure BP with a cuff (e.g., 120/80)
+# 2. Record video immediately
+# 3. Run calibration
+uv run python predict_bp.py calibration_video.mp4 --calibrate --sbp 120 --dbp 80
+```
+See [CALIBRATION.md](CALIBRATION.md) for details.
 
 ---
 
@@ -77,218 +88,31 @@ Target: SBP < 15 mmHg, DBP < 12 mmHg ✅
 ```
 bpm/
 ├── src/
-│   ├── data_loader.py      # UCI dataset loading (HDF5 support)
-│   ├── features.py         # PPG feature extraction (NeuroKit2)
-│   ├── model_trainer.py    # Training pipeline (RandomForest)
-│   └── inference_video.py  # Video-based BP prediction
+│   ├── data_loader.py      # UCI dataset loading (HDF5)
+│   ├── features.py         # NeuroKit2 feature extraction
+│   ├── model_cnn.py        # PyTorch 1D CNN Architecture
+│   ├── model_trainer.py    # RF Training Pipeline
+│   ├── model_trainer_cnn.py# CNN Training Pipeline
+│   └── inference_video.py  # Video processing & prediction
 ├── model/
-│   └── bp_model.pkl        # Trained model + metadata
-├── uci_dataset/
-│   └── Part_*.mat          # Training data (not included)
-├── train.py           # Training entry point
+│   ├── bp_model.pkl        # Saved RF Model
+│   └── bp_model_cnn.pt     # Saved CNN Weights
+├── uci_dataset/            # Place Part_1.mat, etc. here
+├── train.py                # Main training entry point
 ├── predict_bp.py           # Inference entry point
-├── requirements.txt
-├── context.md              # Project documentation
-└── plan.md                 # Implementation guide
+└── requirements.txt
 ```
-
----
-
-## 🔬 How It Works
-
-### Training Pipeline
-
-```
-.mat files → Data Loader → 5s Windows → Feature Extraction → RandomForest
-```
-
-1. **Data Loading** (`data_loader.py`)
-   - Loads MATLAB v7.3 (HDF5) files
-   - Extracts PPG and ABP signals
-   - Slices into 5-second windows (625 samples @ 125Hz)
-   - Detects peaks/valleys in ABP for SBP/DBP labels
-
-2. **Feature Extraction** (`features.py`)
-   - Normalizes PPG signal for peak detection
-   - Cleans signal (bandpass filter 0.5-8 Hz)
-   - Extracts 11 morphological features:
-     - Heart rate (mean, std)
-     - HRV time-domain (MeanNN, SDNN, RMSSD)
-     - Pulse amplitude (mean, std)
-     - Signal statistics
-
-3. **Model Training** (`model_trainer.py`)
-   - RandomForest regressor (100 trees)
-   - Multi-output regression (predicts both SBP and DBP)
-   - Saves model with feature names and scaler
-
-### Inference Pipeline
-
-```
-Video → Best Channel → Resample to 125Hz → Features → Model → BP
-```
-
-1. **PPG Extraction** (`inference_video.py`)
-   - Reads video frame-by-frame
-   - Extracts mean intensity from RGB channels
-   - **Automatically selects channel with highest variance**
-   - (Green preferred, but red/blue used if better)
-
-2. **Resampling**
-   - Converts video FPS (typically 30) to 125 Hz
-   - Uses scipy.signal.resample for anti-aliasing
-
-3. **Feature Extraction**
-   - Processes multiple 5-second windows
-   - Averages features for robustness
-
-4. **Prediction**
-   - Loads trained model
-   - Aligns features with training columns
-   - Returns SBP/DBP with confidence score
-
----
-
-## 💡 Example Output
-
-```
-Processing video: bpm.mp4
-[1/4] Extracting PPG signal from green channel...
-  Selected Red channel (variance: 52.27)
-  Extracted 944 samples at 30.0 FPS
-  Duration: 31.5 seconds
-[2/4] Resampling to 125 Hz...
-  Resampled signal: 3937 samples
-[3/4] Extracting features...
-  Extracted 11 features
-[4/4] Loading model and predicting...
-
-==================================================
-BLOOD PRESSURE ESTIMATION RESULT
-==================================================
-Systolic BP (SBP):  127.8 mmHg
-Diastolic BP (DBP): 69.0 mmHg
-Signal Quality:     Fair (confidence: 0.60)
-==================================================
-```
-
----
-
-## 🎛️ Advanced Usage
-
-### Train on Multiple Dataset Parts
-
-```bash
-uv run python train.py --parts 1 2 --full
-```
-
-### Custom Output Path
-
-```bash
-uv run python train.py --output models/my_model.pkl
-```
-
-### Direct Python API
-
-```python
-from src.inference_video import video_to_bp
-
-result = video_to_bp("video.mp4", "model/bp_model.pkl")
-print(f"BP: {result['sbp']}/{result['dbp']} mmHg")
-print(f"Quality: {result['signal_quality']}")
-```
-
----
 
 ## 📝 Technical Details
 
-### Signal Processing
-- **Sampling Rate:** 125 Hz (all signals normalized to this)
-- **Window Size:** 5 seconds (625 samples)
-- **Filter:** Bandpass 0.5-8 Hz (removes baseline wander and high-freq noise)
-- **Peak Detection:** NeuroKit2 derivative-based method with fallback to Elgendi
-
-### Features Extracted
-| Feature | Description |
-|---------|-------------|
-| PPG_Rate_Mean | Average heart rate (BPM) |
-| PPG_Rate_Std | Heart rate variability |
-| HRV_MeanNN | Mean time between peaks (ms) |
-| HRV_SDNN | Standard deviation of NN intervals |
-| HRV_RMSSD | Root mean square of successive differences |
-| PPG_Peaks_Amplitude_Mean | Average peak amplitude |
-| PPG_Peaks_Amplitude_Std | Peak amplitude variability |
-| PPG_Mean/Std/Range | Basic signal statistics |
-| PPG_NumPeaks | Number of detected peaks |
-
-### Model Configuration
-- **Algorithm:** RandomForestRegressor (scikit-learn)
-- **Trees:** 100
-- **Max Depth:** 15
-- **Min Samples Split:** 5
-- **Features:** Standardized (StandardScaler)
-
----
-
-## ⚠️ Important Notes
-
-1. **Not Medical Advice:** This is a research/educational tool, not a medical device
-2. **Video Quality:** Signal quality depends heavily on:
-   - Finger placement (fully covering camera)
-   - Stability (hold still)
-   - Lighting conditions
-   - Skin tone and blood perfusion
-3. **Calibration:** Model trained on UCI dataset; results may vary for different populations
-4. **Channel Selection:** Automatically uses red channel if green is unavailable/poor
-
----
-
-## 📚 Dataset
-
-UCI Cuff-less Blood Pressure Estimation Dataset:
-- **Source:** [UCI Machine Learning Repository](https://archive.ics.uci.edu/dataset/340/cuff+less+blood+pressure+estimation)
-- **Format:** MATLAB v7.3 (HDF5)
-- **Signals:** PPG, ABP, ECG
-- **Sampling Rate:** 125 Hz
-- **Patients:** 3000 records
-
-Place dataset files in `uci_dataset/` directory:
-- `Part_1.mat` (~851 MB)
-- `Part_2.mat` (~973 MB)
-- `Part_3.mat` (~718 MB)
-- `Part_4.mat` (~867 MB)
-
----
-
-## 🔧 Dependencies
-
-- `numpy` >= 1.24
-- `pandas` >= 2.0
-- `scipy` >= 1.11
-- `scikit-learn` >= 1.3
-- `neurokit2` >= 0.2
-- `opencv-python` >= 4.8
-- `h5py` >= 3.0 (for MATLAB v7.3 files)
-- `tqdm` >= 4.65
-- `joblib` >= 1.3
-- `matplotlib` >= 3.7
-
----
-
-## 📖 References
-
-- NeuroKit2: [PPG Analysis Documentation](https://neuropsychology.github.io/NeuroKit/functions/ppg.html)
-- Photoplethysmography: Non-invasive optical measurement of blood volume changes
-- Heart Rate Variability: Time-domain and frequency-domain analysis
-
----
-
-## 🤝 Contributing
-
-This is a research project. For questions or improvements, please refer to `context.md` and `plan.md` for detailed technical specifications.
-
----
+- **Signal Processing**: All signals resampled to **125 Hz**.
+- **Windowing**: Non-overlapping **5-second windows**.
+- **Filtering**: Butterworth Bandpass (0.5 - 8 Hz).
+- **CNN Architecture**: 
+  - 4x Conv1D blocks with BatchNorm & ReLU.
+  - Global Average Pooling.
+  - 2x Dense layers with Dropout (0.3).
+  - Trained with L1 Loss (MAE) and Adam Optimizer.
 
 ## 📄 License
-
-Educational/Research use. Please cite the UCI dataset if used in publications.
+Research use only. Cite UCI Cuff-less Blood Pressure Estimation Dataset.
