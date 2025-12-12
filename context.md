@@ -135,5 +135,6 @@ An optical measurement of blood volume changes in tissue. When captured via came
 ---
 
 ## References
+- Project Documentation: `README.md` (contains calibration guide and CNN implementation details)
 - UCI Dataset: [Cuff-less Blood Pressure Estimation](https://archive.ics.uci.edu/dataset/340/cuff+less+blood+pressure+estimation)
 - NeuroKit2 Documentation: [PPG Analysis](https://neuropsychology.github.io/NeuroKit/functions/ppg.html)
