@@ -1,43 +1,51 @@
 """Video-based Blood Pressure Inference.
 
 This module handles real-world usage: extracting PPG from smartphone videos
-and predicting blood pressure using the trained model.
+and predicting blood pressure using the trained model (RF or CNN).
 """
 
-import numpy as np
-import cv2
-from scipy import signal
-import joblib
-import pandas as pd
-from typing import Tuple, Optional
+from __future__ import annotations
+
 import warnings
+from typing import Optional, Union
+
+import cv2
+import joblib
+import numpy as np
+import pandas as pd
+from scipy import signal as sp_signal
 
 from features import PPGFeatureExtractor
+from model_cnn import load_cnn_model, predict_with_cnn, WINDOW_SIZE
 
 
-def video_to_bp(video_path: str, model_path: str = "model/bp_model.pkl", calibration_manager=None) -> dict:
+def video_to_bp(
+    video_path: str,
+    model_path: str = "model/bp_model.pkl",
+    model_type: str = "auto",
+    calibration_manager=None
+) -> dict:
     """Predict blood pressure from a smartphone video.
-    
-    Expected video format:
-    - User places finger on phone camera for 20-30 seconds
-    - Camera captures changes in blood volume via green channel
     
     Args:
         video_path: Path to .mp4 video file
-        model_path: Path to trained model pickle
-        calibration_manager: Optional CalibrationManager for personalized predictions
+        model_path: Path to trained model file
+        model_type: 'rf', 'cnn', or 'auto' (detect from file extension)
+        calibration_manager: Optional CalibrationManager
     
     Returns:
-        Dictionary with keys:
-            - 'sbp': Systolic blood pressure (mmHg)
-            - 'dbp': Diastolic blood pressure (mmHg)
-            - 'heart_rate': Heart rate (BPM)
-            - 'confidence': Quality score (0-1)
-            - 'signal_quality': Assessment of PPG signal quality
-            - 'raw_sbp': Uncalibrated SBP (if calibration applied)
-            - 'raw_dbp': Uncalibrated DBP (if calibration applied)
+        Dictionary with results including SBP, DBP, Heart Rate, etc.
     """
     print(f"Processing video: {video_path}")
+    
+    # Auto-detect model type
+    if model_type == 'auto':
+        if 'cnn' in model_path.lower() or model_path.endswith('.pt'):
+            model_type = 'cnn'
+        else:
+            model_type = 'rf'
+    
+    print(f"Using model: {model_type.upper()} ({model_path})")
     
     # Step 1: Extract PPG signal from video
     print("[1/4] Extracting PPG signal from green channel...")
@@ -49,43 +57,28 @@ def video_to_bp(video_path: str, model_path: str = "model/bp_model.pkl", calibra
     print(f"  Extracted {len(ppg_raw)} samples at {fps:.1f} FPS")
     print(f"  Duration: {len(ppg_raw)/fps:.1f} seconds")
     
-    # Step 2: Resample to 125 Hz (match training data)
+    # Step 2: Resample to 125 Hz
     print("[2/4] Resampling to 125 Hz...")
     ppg_resampled = resample_to_target(ppg_raw, fps, target_fs=125)
     print(f"  Resampled signal: {len(ppg_resampled)} samples")
     
-    # Step 3: Extract features
-    print("[3/4] Extracting features...")
-    features = extract_features_from_signal(ppg_resampled, sampling_rate=125)
+    # Check signal length
+    if len(ppg_resampled) < WINDOW_SIZE:
+        raise ValueError(f"Signal too short ({len(ppg_resampled)} < {WINDOW_SIZE} required)")
     
-    if features is None:
-        raise ValueError("Failed to extract features (signal quality too poor)")
+    # Step 3 & 4: Inference (Model specific)
+    print(f"[3/4] Running {model_type.upper()} inference...")
     
-    print(f"  Extracted {len(features)} features")
-    
-    # Extract heart rate from features
-    heart_rate = features.get('PPG_Rate_Mean', 0)
-    
-    # Step 4: Load model and predict
-    print("[4/4] Loading model and predicting...")
-    model_package = joblib.load(model_path)
-    
-    model = model_package['model']
-    scaler = model_package['scaler']
-    feature_names = model_package['feature_names']
-    
-    # Align features with training columns
-    features_df = pd.DataFrame([features])
-    features_df = features_df.reindex(columns=feature_names, fill_value=0)
-    
-    # Scale features
-    features_scaled = scaler.transform(features_df)
-    
-    # Predict
-    prediction = model.predict(features_scaled)[0]
-    sbp_raw, dbp_raw = prediction
-    
-    # Apply calibration if available
+    if model_type == 'cnn':
+        result = _predict_cnn(ppg_resampled, model_path)
+    else:
+        result = _predict_rf(ppg_resampled, model_path)
+        
+    sbp_raw, dbp_raw = result['sbp'], result['dbp']
+    heart_rate = result['heart_rate']
+    quality_score = result.get('confidence', 0.5)
+
+    # Step 5: Calibration
     if calibration_manager is not None:
         sbp, dbp = calibration_manager.apply_calibration(sbp_raw, dbp_raw)
         calibrated = True
@@ -93,191 +86,181 @@ def video_to_bp(video_path: str, model_path: str = "model/bp_model.pkl", calibra
         sbp, dbp = sbp_raw, dbp_raw
         calibrated = False
     
-    # Assess signal quality
-    quality_score = assess_signal_quality(ppg_resampled, features)
-    
-    result = {
+    output = {
         'sbp': round(sbp, 1),
         'dbp': round(dbp, 1),
         'heart_rate': round(heart_rate, 1),
         'confidence': quality_score,
         'signal_quality': 'Good' if quality_score > 0.7 else 'Fair' if quality_score > 0.4 else 'Poor',
-        'calibrated': calibrated
+        'calibrated': calibrated,
+        'model_type': model_type
     }
     
-    # Include raw predictions if calibrated
     if calibrated:
-        result['raw_sbp'] = round(sbp_raw, 1)
-        result['raw_dbp'] = round(dbp_raw, 1)
+        output['raw_sbp'] = round(sbp_raw, 1)
+        output['raw_dbp'] = round(dbp_raw, 1)
     
-    print("\n" + "=" * 50)
-    print("BLOOD PRESSURE ESTIMATION RESULT")
-    print("=" * 50)
-    print(f"Systolic BP (SBP):  {result['sbp']:.1f} mmHg")
-    print(f"Diastolic BP (DBP): {result['dbp']:.1f} mmHg")
-    print(f"Heart Rate:         {result['heart_rate']:.1f} BPM")
-    print(f"Signal Quality:     {result['signal_quality']} (confidence: {result['confidence']:.2f})")
-    if calibrated:
-        print(f"\n✓ Calibrated prediction")
-        print(f"  (Raw: {result['raw_sbp']:.1f}/{result['raw_dbp']:.1f} mmHg)")
-    print("=" * 50)
+    _print_results(output)
     
-    return result
+    return output
 
 
-def extract_ppg_from_video(video_path: str) -> Tuple[Optional[np.ndarray], float]:
-    """Extract PPG signal from video by selecting the best color channel.
+def _predict_cnn(signal_data: np.ndarray, model_path: str) -> dict:
+    """Run inference using CNN model with windowing."""
+    # Remove extension if present for load_cnn_model
+    if model_path.endswith('.pt'):
+        model_path = model_path[:-3]
     
-    Why Color Channels for PPG?
-    - Hemoglobin absorbs light differently at different wavelengths
-    - Green (~540nm) typically provides best signal
-    - However, some videos may have better signal in red or blue channels
+    model, metadata = load_cnn_model(model_path)
     
-    Algorithm:
-    1. Read video frame by frame
-    2. For each frame: extract mean intensity of all three channels
-    3. Choose the channel with highest variance (best signal)
-    4. Return time series + original FPS
+    # Create overlapping windows
+    step = WINDOW_SIZE // 2  # 50% overlap
+    windows = []
     
-    Args:
-        video_path: Path to video file
+    for i in range(0, len(signal_data) - WINDOW_SIZE + 1, step):
+        window = signal_data[i : i + WINDOW_SIZE]
+        windows.append(window)
     
-    Returns:
-        (signal, fps): PPG signal array and video framerate
-    """
+    if not windows:
+        # Fallback for short signal: pad/truncate
+        window = np.resize(signal_data, WINDOW_SIZE)
+        windows.append(window)
+    
+    windows = np.array(windows)  # (N, 625)
+    
+    # Normalize (CNN expects normalized inputs)
+    # Note: Ideally we use the scaler saved with the model
+    if 'scaler' in metadata:
+        scaler = metadata['scaler']
+        windows_norm = scaler.transform(windows)
+    else:
+        print("⚠ No scaler found in metadata, using per-window normalization")
+        windows_norm = (windows - windows.mean(axis=1, keepdims=True)) / windows.std(axis=1, keepdims=True)
+    
+    # Predict
+    preds = predict_with_cnn(model, windows_norm)
+    
+    # Average predictions
+    avg_pred = np.mean(preds, axis=0)
+    
+    # Estimate HR from signal (simple FFT/Peak detection)
+    # Using feature extractor just for HR since it's robust
+    extractor = PPGFeatureExtractor(sampling_rate=125, verbose=False)
+    feats = extractor.process_window(windows[0])
+    hr = feats.get('PPG_Rate_Mean', 75) if feats else 75
+    
+    return {
+        'sbp': avg_pred[0],
+        'dbp': avg_pred[1],
+        'heart_rate': hr,
+        'confidence': 0.8  # Placeholder for CNN confidence
+    }
+
+
+def _predict_rf(signal_data: np.ndarray, model_path: str) -> dict:
+    """Run inference using Random Forest model."""
+    # Extract features
+    features = extract_features_from_signal(signal_data, sampling_rate=125)
+    
+    if features is None:
+        raise ValueError("Failed to extract features (signal quality too poor)")
+    
+    model_package = joblib.load(model_path)
+    model = model_package['model']
+    scaler = model_package['scaler']
+    feature_names = model_package['feature_names']
+    
+    # Prepare features
+    features_df = pd.DataFrame([features])
+    features_df = features_df.reindex(columns=feature_names, fill_value=0)
+    features_scaled = scaler.transform(features_df)
+    
+    # Predict
+    prediction = model.predict(features_scaled)[0]
+    
+    # Signal quality assessment
+    quality_score = assess_signal_quality(signal_data, features)
+    
+    return {
+        'sbp': prediction[0],
+        'dbp': prediction[1],
+        'heart_rate': features.get('PPG_Rate_Mean', 0),
+        'confidence': quality_score
+    }
+
+
+def extract_ppg_from_video(video_path: str) -> tuple[Optional[np.ndarray], float]:
+    """Extract PPG signal from video by selecting the best color channel."""
     cap = cv2.VideoCapture(video_path)
-    
     if not cap.isOpened():
         print(f"Error: Could not open video {video_path}")
         return None, 0
     
     fps = cap.get(cv2.CAP_PROP_FPS)
-    total_frames = int(cap.get(cv2.CAP_PROP_FRAME_COUNT))
     
     blue_values = []
     green_values = []
     red_values = []
-    frame_count = 0
     
     while cap.isOpened():
         ret, frame = cap.read()
         if not ret:
             break
         
-        # Extract all channels (OpenCV uses BGR format)
-        blue_channel = frame[:, :, 0]
-        green_channel = frame[:, :, 1]
-        red_channel = frame[:, :, 2]
-        
-        # Calculate mean intensity for each channel
-        blue_values.append(np.mean(blue_channel))
-        green_values.append(np.mean(green_channel))
-        red_values.append(np.mean(red_channel))
-        
-        frame_count += 1
+        # Calculate mean intensity (B, G, R)
+        means = cv2.mean(frame)[:3]
+        blue_values.append(means[0])
+        green_values.append(means[1])
+        red_values.append(means[2])
     
     cap.release()
     
-    if len(green_values) == 0:
+    if not green_values:
         return None, 0
     
     # Convert to arrays
-    blue_signal = np.array(blue_values)
-    green_signal = np.array(green_values)
-    red_signal = np.array(red_values)
+    signals = {
+        'Blue': np.array(blue_values),
+        'Green': np.array(green_values),
+        'Red': np.array(red_values)
+    }
     
     # Select channel with highest variance (best signal quality)
-    blue_var = np.var(blue_signal)
-    green_var = np.var(green_signal)
-    red_var = np.var(red_signal)
+    best_channel = max(signals, key=lambda k: np.var(signals[k]))
+    print(f"  Selected {best_channel} channel")
     
-    if green_var >= red_var and green_var >= blue_var:
-        selected_signal = green_signal
-        channel_name = "Green"
-    elif red_var >= blue_var:
-        selected_signal = red_signal
-        channel_name = "Red"
-    else:
-        selected_signal = blue_signal
-        channel_name = "Blue"
-    
-    print(f"  Selected {channel_name} channel (variance: {np.var(selected_signal):.2f})")
-    
-    return selected_signal, fps
+    return signals[best_channel], fps
 
 
 def resample_to_target(signal_data: np.ndarray, original_fps: float, target_fs: int = 125) -> np.ndarray:
-    """Resample signal to match training data frequency.
-    
-    This is critical because the model was trained on 125 Hz data,
-    so inference data must be at the same sampling rate.
-    
-    Example:
-    - Video at 30 FPS, 10 seconds → 300 samples
-    - Target: 125 Hz, 10 seconds → 1250 samples
-    
-    Uses scipy.signal.resample for anti-aliased resampling.
-    
-    Args:
-        signal_data: Original signal array
-        original_fps: Original sampling rate
-        target_fs: Target sampling rate (default: 125 Hz)
-    
-    Returns:
-        Resampled signal
-    """
+    """Resample signal to match training data frequency."""
     duration = len(signal_data) / original_fps
     target_samples = int(duration * target_fs)
-    
-    # Use scipy.signal.resample for high-quality resampling
-    from scipy import signal as sp_signal
-    resampled = sp_signal.resample(signal_data, target_samples)
-    
-    return resampled
+    return sp_signal.resample(signal_data, target_samples)
 
 
 def extract_features_from_signal(ppg_signal: np.ndarray, sampling_rate: int = 125) -> Optional[dict]:
-    """Extract features from a PPG signal.
+    """Extract and average features from multiple windows."""
+    window_size = sampling_rate * 5
     
-    For long signals (20-30 seconds), we extract features from multiple
-    windows and average them for robustness.
-    
-    Args:
-        ppg_signal: PPG signal array
-        sampling_rate: Sampling rate in Hz
-    
-    Returns:
-        Dictionary of features, or None if extraction fails
-    """
-    window_size = sampling_rate * 5  # 5-second windows
-    
-    if len(ppg_signal) < window_size:
-        print(f"Warning: Signal too short ({len(ppg_signal)} samples < {window_size} required)")
-        return None
-    
-    # Extract features from multiple windows and average
+    # Extract features from multiple windows
     extractor = PPGFeatureExtractor(sampling_rate=sampling_rate, verbose=False)
-    
     num_windows = len(ppg_signal) // window_size
     all_features = []
     
     for i in range(num_windows):
         start = i * window_size
-        end = start + window_size
-        window = ppg_signal[start:end]
-        
+        window = ppg_signal[start : start + window_size]
         features = extractor.process_window(window)
-        if features is not None:
+        if features:
             all_features.append(features)
     
-    if len(all_features) == 0:
+    if not all_features:
         return None
     
-    # Average features across all windows
+    # Average features
     avg_features = {}
-    feature_keys = all_features[0].keys()
-    
-    for key in feature_keys:
+    for key in all_features[0].keys():
         values = [f[key] for f in all_features if key in f]
         avg_features[key] = np.mean(values)
     
@@ -285,55 +268,36 @@ def extract_features_from_signal(ppg_signal: np.ndarray, sampling_rate: int = 12
 
 
 def assess_signal_quality(ppg_signal: np.ndarray, features: dict) -> float:
-    """Assess the quality of the PPG signal.
-    
-    Returns a confidence score between 0 and 1 based on:
-    - Signal-to-noise ratio
-    - Number of detected peaks
-    - Regularity of heartbeat
-    
-    Args:
-        ppg_signal: Raw PPG signal
-        features: Extracted features
-    
-    Returns:
-        Quality score (0-1)
-    """
+    """Assess signal quality based on physiology rules."""
     score = 1.0
     
-    # Check if enough peaks were detected
+    # Peak density check
     if 'PPG_NumPeaks' in features:
-        expected_peaks = len(ppg_signal) / 125 * 1.5  # Roughly 90 bpm
-        peak_ratio = features['PPG_NumPeaks'] / expected_peaks
-        if peak_ratio < 0.5:
-            score *= 0.6
+        expected_peaks = len(ppg_signal) / 125 * 1.5  # ~90 BPM
+        ratio = features['PPG_NumPeaks'] / expected_peaks
+        if ratio < 0.5: score *= 0.6
     
-    # Check signal variability (too flat = poor contact)
-    if 'PPG_Std' in features and 'PPG_Range' in features:
-        if features['PPG_Std'] < 1.0 or features['PPG_Range'] < 5.0:
-            score *= 0.5
+    # Variability check
+    if features.get('PPG_Std', 0) < 1.0: score *= 0.5
     
-    # Check for reasonable heart rate variability
-    if 'PPG_Rate_Mean' in features:
-        hr = features['PPG_Rate_Mean']
-        if hr < 40 or hr > 180:  # Unrealistic heart rate
-            score *= 0.4
+    # HR range check
+    hr = features.get('PPG_Rate_Mean', 75)
+    if not (40 <= hr <= 180): score *= 0.4
     
     return min(1.0, max(0.0, score))
 
 
-if __name__ == "__main__":
-    import argparse
+def _print_results(result: dict) -> None:
+    """Print formatted results."""
+    print("\n" + "=" * 50)
+    print(f"BLOOD PRESSURE RESULT ({result['model_type'].upper()})")
+    print("=" * 50)
+    print(f"Systolic BP (SBP):  {result['sbp']:.1f} mmHg")
+    print(f"Diastolic BP (DBP): {result['dbp']:.1f} mmHg")
+    print(f"Heart Rate:         {result['heart_rate']:.1f} BPM")
+    print(f"Signal Quality:     {result['signal_quality']} (score: {result['confidence']:.2f})")
     
-    parser = argparse.ArgumentParser(description="Predict BP from video")
-    parser.add_argument('video', type=str, help='Path to video file')
-    parser.add_argument('--model', type=str, default='model/bp_model.pkl',
-                        help='Path to trained model')
-    
-    args = parser.parse_args()
-    
-    result = video_to_bp(args.video, args.model)
-    
-    print("\nResult:")
-    print(f"  BP: {result['sbp']}/{result['dbp']} mmHg")
-    print(f"  Quality: {result['signal_quality']}")
+    if result['calibrated']:
+        print(f"\n✓ Calibrated prediction")
+        print(f"  (Raw: {result['raw_sbp']:.1f}/{result['raw_dbp']:.1f} mmHg)")
+    print("=" * 50)
