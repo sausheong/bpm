@@ -26,6 +26,11 @@ import torch
 import torch.nn as nn
 import torch.optim as optim
 from torch.utils.data import DataLoader, Dataset
+from sklearn.exceptions import InconsistentVersionWarning
+import warnings
+
+# Suppress sklearn version warnings (e.g. 1.7.0 vs 1.8.0 for StandardScaler)
+warnings.filterwarnings("ignore", category=InconsistentVersionWarning)
 
 
 # =============================================================================

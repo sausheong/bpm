@@ -142,7 +142,8 @@ Examples:
                 predicted_hr=result['heart_rate'],
                 actual_sbp=args.sbp,
                 actual_dbp=args.dbp,
-                actual_hr=args.hr
+                actual_hr=args.hr,
+                model_type=model_type
             )
             
     except Exception as e:

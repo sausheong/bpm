@@ -9,7 +9,11 @@ from __future__ import annotations
 import warnings
 from typing import Optional, Union
 
+from sklearn.exceptions import InconsistentVersionWarning
 import cv2
+
+# Suppress sklearn version warnings
+warnings.filterwarnings("ignore", category=InconsistentVersionWarning)
 import joblib
 import numpy as np
 import pandas as pd
@@ -79,12 +83,14 @@ def video_to_bp(
     quality_score = result.get('confidence', 0.5)
 
     # Step 5: Calibration
+    calibrated = False
     if calibration_manager is not None:
-        sbp, dbp = calibration_manager.apply_calibration(sbp_raw, dbp_raw)
-        calibrated = True
+        sbp, dbp = calibration_manager.apply_calibration(sbp_raw, dbp_raw, model_type=model_type)
+        # Check if calibration was actually applied (data exists)
+        if calibration_manager.calibration_data.get(model_type):
+            calibrated = True
     else:
         sbp, dbp = sbp_raw, dbp_raw
-        calibrated = False
     
     output = {
         'sbp': round(sbp, 1),
@@ -143,11 +149,9 @@ def _predict_cnn(signal_data: np.ndarray, model_path: str) -> dict:
     # Average predictions
     avg_pred = np.mean(preds, axis=0)
     
-    # Estimate HR from signal (simple FFT/Peak detection)
-    # Using feature extractor just for HR since it's robust
-    extractor = PPGFeatureExtractor(sampling_rate=125, verbose=False)
-    feats = extractor.process_window(windows[0])
-    hr = feats.get('PPG_Rate_Mean', 75) if feats else 75
+    # Estimate HR using robust feature extraction (windowing + averaging)
+    features = extract_features_from_signal(signal_data, sampling_rate=125)
+    hr = features.get('PPG_Rate_Mean', 75) if features else 75
     
     return {
         'sbp': avg_pred[0],
