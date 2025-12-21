@@ -1,153 +1,114 @@
 # Blood Pressure Estimation from PPG Signals
 
-A machine learning pipeline to estimate **Systolic (SBP)** and **Diastolic (DBP)** blood pressure from Photoplethysmogram (PPG) signals extracted from smartphone videos.
+This project provides a machine learning pipeline to estimate Systolic (SBP) and Diastolic (DBP) blood pressure from Photoplethysmogram (PPG) signals extracted from smartphone videos. It implements both a feature-engineered Random Forest (RF) baseline and a deep learning 1D Convolutional Neural Network (CNN).
 
 ## Quick Start
 
 ### Prerequisites
-- **Python 3.12+**
-- **NVIDIA GPU** (Recommended for CNN)
-- **uv** (Recommended for dependency management)
+- Python 3.12+
+- NVIDIA GPU (Recommended for CNN training and inference)
+- uv (Recommended for dependency management)
 
-### Install
+### Installation
+Clone the repository and install dependencies using `uv`:
 ```bash
 uv pip install -r requirements.txt
 ```
 
-### Train
+### Training
+Train the models on the UCI dataset parts. The script auto-detects available hardware (CUDA/MPS/CPU).
+
 ```bash
-# Random Forest (fast, CPU)
+# Train Random Forest (CPU-based)
 uv run python train.py --model rf --parts 1 2 3 4
 
-# 1D CNN (GPU-accelerated)
+# Train 1D CNN (Hardware-accelerated)
 uv run python train.py --model cnn --parts 1 2 3 4 --epochs 100
 ```
 
-### Predict
+### Prediction
+Predict blood pressure from a recorded video:
 ```bash
+# Default prediction using Random Forest
 uv run python predict.py your_video.mp4
+
+# Prediction using CNN (Recommended for accuracy)
+uv run python predict.py your_video.mp4 --model cnn
 ```
 
----
+## Model Performance
 
-## Model Comparison
+The models were evaluated on the UCI Cuff-less Blood Pressure Estimation dataset.
 
-| Feature | Random Forest | 1D CNN |
-|---------|--------------|--------|
-| **SBP MAE** | 13.91 mmHg | **7.50 mmHg** (Best) |
-| **DBP MAE** | 6.67 mmHg | **4.18 mmHg** (Best) |
-| **R² Score** | 0.24 | **0.70** |
-| **Hardware** | CPU | GPU (CUDA) |
+| Metric | Random Forest | 1D CNN |
+|--------|--------------|--------|
+| SBP MAE | 13.91 mmHg | 7.50 mmHg |
+| DBP MAE | 6.67 mmHg | 4.18 mmHg |
+| SBP R2 | 0.24 | 0.70 |
+| DBP R2 | 0.56 | 0.74 |
+| Hardware | CPU | GPU (CUDA/MPS) |
 
----
+## Calibration System
 
-## Calibration
+The system includes a calibration mechanism to personalize predictions using reference measurements from clinical devices. This accounts for individual physiological variations and model biases.
 
-Personalize predictions with a reference measurement:
-
+### Calibration Commands
 ```bash
-# Calibrate with reference BP reading
-uv run python predict.py video.mp4 --calibrate --sbp 120 --dbp 80
+# Calibrate model with a reference BP reading
+uv run python predict.py video.mp4 --calibrate --sbp 120 --dbp 80 --model cnn
 
-# View/clear calibration
+# View current calibration status
 uv run python predict.py --show-calibration
+
+# Clear all stored calibration data
 uv run python predict.py --clear-calibration
 ```
 
----
+## Technical Specifications
 
-## API Reference
+### 1D CNN Architecture
+The CNN model processes raw PPG signals through a series of convolutional layers designed for temporal feature extraction:
+- Input: (1, 625) normalized PPG signal
+- Layers:
+    - Conv1D (32 filters, kernel=7) + BatchNorm + ReLU + MaxPool
+    - Conv1D (64 filters, kernel=5) + BatchNorm + ReLU + MaxPool
+    - Conv1D (128 filters, kernel=3) + BatchNorm + ReLU + MaxPool
+    - Conv1D (128 filters, kernel=3) + BatchNorm + ReLU
+    - GlobalAveragePooling1D
+    - Fully Connected (128) + ReLU + Dropout (0.3)
+    - Fully Connected (64) + ReLU + Dropout (0.3)
+    - Output: Fully Connected (2) -> [SBP, DBP]
+- Parameters: ~110K trainable weights
 
-### CNN Model (src/model_cnn.py)
+### Signal Processing Pipeline
+- Windowing: 5-second segments at 125 Hz (625 samples per window)
+- Filtering: Butterworth Bandpass filter (0.5–8.0 Hz)
+- Normalization: StandardScaler applied per signal (CNN) or per feature (RF)
+- Video Processing: Automatic color channel selection based on signal-to-noise ratio; resampling from camera FPS to 125 Hz.
 
-```python
-from src.model_cnn import create_cnn_model, train_cnn_model, predict_with_cnn
-
-# Create model
-model = create_cnn_model()
-
-# Train
-model, history = train_cnn_model(
-    X_train, y_train,
-    X_val, y_val,
-    epochs=100,
-    batch_size=32
-)
-
-# Predict
-predictions = predict_with_cnn(model, ppg_signals)  # (N, 2) [SBP, DBP]
-```
-
-### Training Pipelines
-
-```python
-# Random Forest
-from src.model_trainer import train_pipeline, compute_metrics
-metrics = train_pipeline(
-    data_path=['uci_dataset/Part_1.mat'],
-    output_path='model/bp_model.pkl'
-)
-
-# CNN
-from src.model_trainer_cnn import train_cnn_pipeline
-metrics = train_cnn_pipeline(
-    data_path=['uci_dataset/Part_1.mat'],
-    epochs=100, batch_size=32
-)
-```
-
----
-
-## Technical Details
-
-### CNN Architecture
-```
-Input (1, 625)
-→ Conv1D(32, k=7) + BN + ReLU + MaxPool
-→ Conv1D(64, k=5) + BN + ReLU + MaxPool
-→ Conv1D(128, k=3) + BN + ReLU + MaxPool
-→ Conv1D(128, k=3) + BN + ReLU
-→ GlobalAvgPool → FC(128) → FC(64) → FC(2)
-```
-**Parameters:** ~110K trainable
-
-### Signal Processing
-- **Window**: 5 seconds @ 125 Hz (625 samples)
-- **Normalization**: StandardScaler (mean=0, std=1)
-- **Filtering**: Butterworth Bandpass (0.5–8 Hz)
-
-### Training
-- **Loss**: L1 (MAE)
-- **Optimizer**: Adam + ReduceLROnPlateau
-- **Regularization**: Dropout (0.3), BatchNorm
-- **GPU**: FP16 AMP on CUDA
-
----
+### Cross-Platform Support
+The project utilizes PyTorch for the CNN implementation and automatically detects the best available backend:
+- CUDA: NVIDIA GPUs (via `cuda`)
+- MPS: Apple Silicon GPUs (via `mps`)
+- CPU: Standard fallback for all systems
 
 ## Project Structure
 
-```
-bpm/
-├── src/
-│   ├── model_cnn.py          # CNN architecture & training
-│   ├── model_trainer.py      # RF training pipeline
-│   ├── model_trainer_cnn.py  # CNN training pipeline
-│   ├── data_loader.py        # UCI dataset loader
-│   ├── features.py           # NeuroKit2 feature extraction
-│   ├── calibration.py        # User calibration
-│   └── inference_video.py    # Video → BP prediction
-├── model/                    # Saved models
-├── uci_dataset/              # Training data (.mat files)
-├── train.py                  # CLI training entry
-├── predict.py             # CLI inference entry
-└── requirements.txt
-```
-
----
+- `src/`: Core implementation modules
+    - `model_cnn.py`: CNN architecture and inference logic
+    - `model_trainer.py`: Random Forest training orchestration
+    - `model_trainer_cnn.py`: CNN training orchestration
+    - `data_loader.py`: UCI dataset parsing and windowing
+    - `features.py`: PPG feature extraction using NeuroKit2
+    - `calibration.py`: Persistent calibration management
+    - `inference_video.py`: End-to-end video-to-BP pipeline
+- `model/`: Directory for saved model weights and metadata
+- `uci_dataset/`: Target directory for .mat data files
+- `train.py`: CLI for model training
+- `predict.py`: CLI for running inference on video files
 
 ## References
-
-- [UCI Cuff-less BP Dataset](https://archive.ics.uci.edu/dataset/340/cuff+less+blood+pressure+estimation)
-- [NeuroKit2 PPG Analysis](https://neuropsychology.github.io/NeuroKit/functions/ppg.html)
+- UCI Cuff-less Blood Pressure Estimation Dataset: [Archive Link](https://archive.ics.uci.edu/dataset/340/cuff+less+blood+pressure+estimation)
+- Signal analysis facilitated by [NeuroKit2](https://neuropsychology.github.io/NeuroKit/)
 
 
