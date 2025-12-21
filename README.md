@@ -1,4 +1,4 @@
-# Blood Pressure Estimation from PPG Signals
+# Blood Pressure Monitoring from PPG Signals
 
 This project provides a machine learning pipeline to estimate Systolic (SBP) and Diastolic (DBP) blood pressure from Photoplethysmogram (PPG) signals extracted from smartphone videos. It implements both a feature-engineered Random Forest (RF) baseline and a deep learning 1D Convolutional Neural Network (CNN).
 
